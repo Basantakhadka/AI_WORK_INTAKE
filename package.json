@@ -1,0 +1,20 @@
+{
+  "name": "ai-work-intake",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AI-Assisted Work Intake System - monorepo (NestJS backend + React/Vite frontend). Each app under apps/ is self-contained with its own package.json, node_modules, and .env.",
+  "scripts": {
+    "install:backend": "npm install --prefix apps/backend",
+    "install:frontend": "npm install --prefix apps/frontend",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "dev:backend": "npm run start:dev --prefix apps/backend",
+    "dev:frontend": "npm run dev --prefix apps/frontend",
+    "build": "npm run build --prefix apps/backend && npm run build --prefix apps/frontend",
+    "migration:run": "npm run migration:run --prefix apps/backend",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

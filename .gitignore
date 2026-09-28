@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# build output
+dist/
+build/
+**/dist/
+**/build/
+
+# env
+.env
+.env.local
+apps/backend/.env
+apps/frontend/.env
+
+# logs
+npm-debug.log*
+*.log
+
+# editor / os
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+
+# coverage
+coverage/

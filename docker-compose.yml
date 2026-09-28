@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-work-intake-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: work_intake
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d work_intake"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: ai-work-intake-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # AI_PROVIDER / OPENAI_API_KEY / OPENAI_MODEL come from the backend's own
+    # .env file (copy apps/backend/.env.example -> apps/backend/.env first).
+    # DATABASE_URL/PORT are forced below because inside the compose network
+    # the database host is the "postgres" service name, not localhost.
+    env_file:
+      - path: ./apps/backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/work_intake
+      PORT: 3000
+      CORS_ORIGIN: "*"
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+      args:
+        # nginx.conf proxies /api/* to the backend container, so the default
+        # relative base URL works as-is; override only for a non-default setup.
+        VITE_API_BASE_URL: /api/v1
+    container_name: ai-work-intake-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  postgres-data:
