@@ -34,6 +34,13 @@ export interface CreateWorkItemInput {
 
 export interface WorkItemFilters {
   status?: WorkItemStatus;
+  search?: string;
+  analysed?: boolean;
   page: number;
   limit: number;
+}
+
+export interface WorkItemStats {
+  total: number;
+  byStatus: Record<WorkItemStatus, number>;
 }

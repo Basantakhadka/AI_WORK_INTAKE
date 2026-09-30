@@ -18,6 +18,13 @@ export class WorkItemsController {
     return this.workItemsService.findAll(query);
   }
 
+  // Must come before ':id' — otherwise Express would match "stats" as the
+  // :id param and ParseUUIDPipe would reject it with a 400.
+  @Get('stats')
+  getStats() {
+    return this.workItemsService.getStats();
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.workItemsService.findOne(id);

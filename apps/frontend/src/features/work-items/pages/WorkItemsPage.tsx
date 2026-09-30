@@ -9,21 +9,27 @@ import { CreateWorkItemModal } from '../components/CreateWorkItemModal';
 
 export function WorkItemsPage() {
   const [status, setStatus] = useState<WorkItemStatus | undefined>(undefined);
+  const [search, setSearch] = useState<string | undefined>(undefined);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<WorkItem | undefined>(undefined);
   const [createOpen, setCreateOpen] = useState(false);
 
   const limit = 20;
-  const { data, isLoading } = useWorkItemsQuery({ status, page, limit });
+  const { data, isLoading } = useWorkItemsQuery({ status, search, page, limit });
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px' }}>
-      <Typography.Title level={3}>AI Work Intake — Operations</Typography.Title>
+    <div style={{ padding: '32px 24px' }}>
+      <Typography.Title level={3}>Work Items</Typography.Title>
 
       <WorkItemFilters
         status={status}
         onStatusChange={(value) => {
           setStatus(value);
+          setPage(1);
+        }}
+        search={search}
+        onSearch={(value) => {
+          setSearch(value);
           setPage(1);
         }}
         onCreate={() => setCreateOpen(true)}

@@ -13,6 +13,13 @@ export function useWorkItemsQuery(filters: WorkItemFilters) {
   });
 }
 
+export function useWorkItemStatsQuery() {
+  return useQuery({
+    queryKey: ['work-items', 'stats'] as const,
+    queryFn: () => workItemsApi.getStats(),
+  });
+}
+
 export function useWorkItemQuery(id: string | undefined) {
   return useQuery({
     queryKey: workItemKey(id ?? ''),
