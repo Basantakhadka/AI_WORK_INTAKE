@@ -4,6 +4,7 @@ import {
   WorkItem,
   WorkItemFilters,
   WorkItemListResponse,
+  WorkItemStats,
 } from '../types/work-item.types';
 
 export const workItemsApi = {
@@ -11,10 +12,17 @@ export const workItemsApi = {
     const { data } = await apiClient.get<WorkItemListResponse>('/work-items', {
       params: {
         status: filters.status,
+        search: filters.search || undefined,
+        analysed: filters.analysed || undefined,
         page: filters.page,
         limit: filters.limit,
       },
     });
+    return data;
+  },
+
+  getStats: async (): Promise<WorkItemStats> => {
+    const { data } = await apiClient.get<WorkItemStats>('/work-items/stats');
     return data;
   },
 

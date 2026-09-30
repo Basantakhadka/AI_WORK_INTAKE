@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, FindOptionsWhere, ILike, IsNull, Not, QueryFailedError, Repository } from 'typeorm';
 import { AIAnalysisResult } from '../../ai/interfaces/ai-provider.interface';
 import { WorkItemStatusHistory } from '../entities/work-item-status-history.entity';
 import { WorkItem } from '../entities/work-item.entity';
@@ -33,17 +33,57 @@ export class WorkItemsRepository {
     }
   }
 
-  async findMany(params: { status?: WorkItemStatus; page: number; limit: number }) {
-    const { status, page, limit } = params;
+  async findMany(params: {
+    status?: WorkItemStatus;
+    search?: string;
+    analysed?: boolean;
+    page: number;
+    limit: number;
+  }) {
+    const { status, search, analysed, page, limit } = params;
+
+    const baseWhere: FindOptionsWhere<WorkItem> = {
+      ...(status ? { status } : {}),
+      ...(analysed ? { analysedAt: Not(IsNull()) } : {}),
+    };
+    // Matches on externalId OR title; each branch keeps the other filters so
+    // "OR" only widens the text match, not the status/analysed scope.
+    const where: FindOptionsWhere<WorkItem> | FindOptionsWhere<WorkItem>[] = search
+      ? [
+          { ...baseWhere, externalId: ILike(`%${search}%`) },
+          { ...baseWhere, title: ILike(`%${search}%`) },
+        ]
+      : baseWhere;
 
     const [items, total] = await this.workItems.findAndCount({
-      where: status ? { status } : {},
+      where,
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
 
     return { items, total, page, limit };
+  }
+
+  /** One row per status, zero-filled for statuses with no rows yet. */
+  async countByStatus(): Promise<Record<WorkItemStatus, number>> {
+    const rows = await this.workItems
+      .createQueryBuilder('w')
+      .select('w.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('w.status')
+      .getRawMany<{ status: WorkItemStatus; count: string }>();
+
+    const counts = Object.fromEntries(Object.values(WorkItemStatus).map((status) => [status, 0])) as Record<
+      WorkItemStatus,
+      number
+    >;
+
+    for (const row of rows) {
+      counts[row.status] = Number(row.count);
+    }
+
+    return counts;
   }
 
   async findById(id: string): Promise<WorkItem> {

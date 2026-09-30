@@ -178,3 +178,145 @@ folder. Never commit a real `.env` file or API key.
   and stores a safe error message — never a partial AI result.
 - `retry` is only accepted from `FAILED`; the backend enforces this
   regardless of what the frontend shows.
+
+## Testing
+
+```bash
+cd apps/backend
+npm test
+```
+
+30 Jest unit tests across 5 suites, colocated with the code they cover
+(`*.spec.ts` next to each source file). They specifically target the
+scenarios called out as important:
+
+- **Duplicate `externalId`** — `work-items.repository.spec.ts` simulates the
+  Postgres unique-violation (`23505`) that two near-simultaneous requests
+  would race into, and asserts it turns into a `409 Conflict` with the
+  existing item's id, not a duplicate row.
+- **Invalid workflow transitions** — `workflow.service.spec.ts` exhaustively
+  checks every allowed and disallowed `from -> to` pair (e.g. `RECEIVED ->
+  COMPLETED`, `COMPLETED -> ANALYSING` are rejected).
+- **Failed/invalid AI responses don't corrupt the work item** —
+  `work-items.service.spec.ts` asserts that when the provider throws,
+  `saveAnalysis` is never called (no partial AI fields persisted) and the
+  item lands in `FAILED` with a safe error message instead.
+- Bonus coverage: `ai-analysis.schema.spec.ts` (zod validation of the LLM
+  response shape) and `normalize-ai-error.spec.ts` (timeouts/ZodErrors/raw
+  SDK errors all map to safe, bounded messages).
+
+No frontend automated tests are included; given the scope, effort went into
+backend correctness (the part handling money-adjacent workflow state and
+untrusted LLM output) over UI test scaffolding.
+
+## Assumptions
+
+Several requirements were intentionally underspecified; these are the calls
+made and why:
+
+- **Create and analyse are separate steps.** `POST /work-items` never
+  triggers AI analysis itself — an operator (or a follow-up call) explicitly
+  triggers `POST /:id/analyse`. This matches plain REST semantics (creating
+  a resource shouldn't have a side effect as expensive/unreliable as an LLM
+  call) and lets the frontend show a clear "not yet analysed" state.
+- **No authentication.** The assessment scope is a single internal
+  operations tool; auth is treated as infrastructure the real deployment
+  would sit behind (see Production Considerations) rather than part of this
+  exercise.
+- **`category` is a free-form string, not an enum.** The example payload
+  shows `DOCUMENT_REQUEST`, but categories are inherently open-ended
+  business taxonomy that will evolve; only `priority` (a fixed 3-value
+  scale) and `status` (the actual state machine) are modeled as enums.
+- **`COMPLETED` and `FAILED` are not further reachable from most states** —
+  the transition table only allows `RECEIVED -> ANALYSING -> (READY_FOR_REVIEW
+  | FAILED) -> COMPLETED`, with `FAILED -> ANALYSING` reserved for `retry`.
+  There is no "reopen a completed item" or delete endpoint; that was judged
+  out of scope.
+- **Analysis runs synchronously in the request.** `POST /:id/analyse` blocks
+  until the LLM call resolves (or the 15s timeout fires) rather than
+  queuing a background job. Acceptable for this scope; called out
+  explicitly as a production gap below.
+
+## Technical Decisions
+
+1. **Duplicate detection via DB constraint, not app-level check-then-insert.**
+   A `find-then-create` guard in application code would still race under two
+   near-simultaneous requests with the same `externalId` (the exact scenario
+   the assessment calls out). Instead, `external_id` has a real unique
+   constraint, `WorkItemsRepository.create` just inserts, and on a `23505`
+   violation it looks up the row that won the race and returns a `409` with
+   its id. The database is the single source of truth for uniqueness; the
+   catch block only exists to turn a low-level driver error into a clean API
+   response.
+2. **The AI vendor is fully hidden behind an `AIProvider` interface, and its
+   output is treated as untrusted input.** `WorkItemsService` depends only on
+   `AIService` -> `AIProvider`; `MockAIProvider` and `OpenAIProvider` are
+   interchangeable via `AI_PROVIDER=mock|openai`. Whatever a real LLM
+   returns is parsed as JSON and validated against a `zod` schema before it
+   touches the database — a timeout, malformed JSON, an unexpected field
+   shape, or a total provider outage all normalize to the same outcome: the
+   item moves to `FAILED` with a short, safe error message and an
+   incremented `aiAttempts`, never a half-written analysis.
+3. **Every status change writes an immutable history row in the same
+   transaction as the status update.** `transition()` and
+   `markAIAsFailed()` both run inside one DB transaction that updates
+   `work_items.status` and inserts into `work_item_status_history`
+   (`from_status`, `to_status`, `reason`). This trades one extra write per
+   transition for a full audit trail — useful both for debugging *why* an
+   item failed AI analysis and as the natural foundation for anything a
+   production build might add later (SLA timers, per-transition metrics).
+
+## Production Considerations
+
+What would change if this went to production, roughly in the order it would
+actually get tackled:
+
+- **Background processing.** `POST /:id/analyse` should enqueue a job
+  (e.g. BullMQ/SQS) and return `202 Accepted` immediately instead of holding
+  the HTTP connection open for the LLM round-trip; the frontend would poll
+  or subscribe (SSE/WebSocket) for completion. This also makes retry/backoff
+  and rate-limiting the AI provider much easier to reason about.
+- **AuthN/AuthZ.** Put the API behind the org's SSO/OIDC provider and add
+  role-based access — e.g. only certain roles can mark an item `COMPLETED`
+  or trigger a `retry` — plus an actual "who did this" actor on each status
+  history row instead of just `reason`.
+- **Observability.** Structured logs with a request/correlation id, metrics
+  (AI call latency and failure rate by provider, queue depth, transition
+  counts by status), and tracing around the AI call boundary specifically,
+  since that's the slowest and least reliable part of the system.
+- **LLM reliability & cost.** Retry-with-backoff and a circuit breaker
+  around the provider call, caching identical analyses, tracking token
+  usage/cost per request, and routing low-priority items to a cheaper model
+  with escalation to a stronger one only when needed.
+- **Scalability.** API instances are already stateless and horizontally
+  scalable; the real bottleneck is AI throughput, not HTTP traffic — moving
+  analysis to a worker pool (per the background-processing point) lets the
+  two scale independently.
+- **Security.** Secrets in a vault/secret manager instead of `.env` files,
+  rate-limiting on the public intake endpoint, a real CORS allow-list
+  instead of the current permissive default, and input size limits on
+  `description`.
+- **Database design.** Migration review as a CI gate, an archival/pruning
+  strategy for `work_item_status_history` once it grows large, and read
+  replicas for `GET /work-items` if list traffic grows independently of
+  writes.
+
+## AI Usage
+
+- **Tool:** Claude Code, used for the majority of this implementation.
+- **What for:** scaffolding the NestJS modules (controller/service/workflow/
+  repository), the TypeORM entities and migration, the AI provider
+  abstraction and zod validation, the React Query hooks and Ant Design
+  components, the Jest test suite above, and this README.
+- **How verified:** nothing here was taken on faith. Every backend change
+  was type-checked (`tsc --noEmit`), built (`nest build`), and unit-tested
+  (`npx jest`, 30/30 passing); the full API was also exercised end-to-end
+  against a real Postgres container — create, duplicate-conflict (`409`),
+  list, analyse, retry — before being treated as done, not just left as
+  generated code.
+- **Something changed after review:** the Docker migration step originally
+  ran `prisma migrate deploy`; when the ORM was switched from Prisma to
+  TypeORM, that was corrected to run `typeorm migration:run` against the
+  *compiled* `dist/database/data-source.js` rather than re-invoking
+  `ts-node` inside the production image, since the runtime stage installs
+  with `--omit=dev` and shouldn't need TypeScript tooling at all.

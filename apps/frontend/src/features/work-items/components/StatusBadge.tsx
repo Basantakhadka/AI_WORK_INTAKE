@@ -1,7 +1,7 @@
 import { Tag } from 'antd';
 import { WorkItemStatus } from '../types/work-item.types';
 
-const STATUS_COLORS: Record<WorkItemStatus, string> = {
+export const STATUS_COLORS: Record<WorkItemStatus, string> = {
   RECEIVED: 'default',
   ANALYSING: 'processing',
   READY_FOR_REVIEW: 'gold',

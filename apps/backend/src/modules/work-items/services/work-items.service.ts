@@ -27,6 +27,12 @@ export class WorkItemsService {
     return this.repository.findMany(query);
   }
 
+  async getStats() {
+    const byStatus = await this.repository.countByStatus();
+    const total = Object.values(byStatus).reduce((sum: number, count) => sum + count, 0);
+    return { total, byStatus };
+  }
+
   findOne(id: string): Promise<WorkItem> {
     return this.repository.findById(id);
   }
