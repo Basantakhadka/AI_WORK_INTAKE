@@ -4,8 +4,6 @@ A monorepo containing the operations UI and API for an AI-assisted work
 intake system: work items come in, get analysed by an LLM behind a provider
 abstraction, and move through a small review workflow.
 
-Reference: [`docs/AI_Assisted_Work_Intake_System_Architecture_and_LLM_Integration_Guide.pdf`](./docs/AI_Assisted_Work_Intake_System_Architecture_and_LLM_Integration_Guide.pdf)
-
 ## Stack
 
 | Layer         | Technology                          |
@@ -301,22 +299,27 @@ actually get tackled:
   replicas for `GET /work-items` if list traffic grows independently of
   writes.
 
-## AI Usage
 
-- **Tool:** Claude Code, used for the majority of this implementation.
-- **What for:** scaffolding the NestJS modules (controller/service/workflow/
-  repository), the TypeORM entities and migration, the AI provider
-  abstraction and zod validation, the React Query hooks and Ant Design
-  components, the Jest test suite above, and this README.
-- **How verified:** nothing here was taken on faith. Every backend change
-  was type-checked (`tsc --noEmit`), built (`nest build`), and unit-tested
-  (`npx jest`, 30/30 passing); the full API was also exercised end-to-end
-  against a real Postgres container — create, duplicate-conflict (`409`),
-  list, analyse, retry — before being treated as done, not just left as
-  generated code.
-- **Something changed after review:** the Docker migration step originally
-  ran `prisma migrate deploy`; when the ORM was switched from Prisma to
-  TypeORM, that was corrected to run `typeorm migration:run` against the
-  *compiled* `dist/database/data-source.js` rather than re-invoking
-  `ts-node` inside the production image, since the runtime stage installs
-  with `--omit=dev` and shouldn't need TypeScript tooling at all.
+
+## Database dump file
+
+`prod_local-{odin_assignment}-dump.sql` (repo root) is a plain-SQL `pg_dump`
+(PostgreSQL 16) of the local database. It contains the schema (`migrations`,
+`work_items`, `work_item_status_history`) plus the sample data, so you can
+restore a ready-to-use database without running migrations.
+
+Restore into an empty database (the file name contains braces, so quote it):
+
+```bash
+# Against the Docker Compose postgres service
+docker compose up -d postgres
+docker compose exec -T postgres psql -U postgres -d work_intake \
+  < 'prod_local-{odin_assignment}-dump.sql'
+
+# Or against a local PostgreSQL
+createdb work_intake
+psql -d work_intake -f 'prod_local-{odin_assignment}-dump.sql'
+```
+
+If you restore the dump, skip `npm run migration:run` — the `migrations`
+table is already populated.
