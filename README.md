@@ -4,7 +4,7 @@ A monorepo containing the operations UI and API for an AI-assisted work
 intake system: work items come in, get analysed by an LLM behind a provider
 abstraction, and move through a small review workflow.
 
-Reference: [`docs/AI_Assisted_Work_Intake_System_Architecture_and_LLM_Integration_Guide.pdf`](./docs/AI_Assisted_Work_Intake_System_Architecture_and_LLM_Integration_Guide.pdf)
+
 
 ## Stack
 
